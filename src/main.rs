@@ -20,8 +20,12 @@ use std::collections::HashMap;
 #[macro_use]
 extern crate clap;
 extern crate ansi_term;
+extern crate byteorder;
+extern crate openat;
 
 use ansi_term::Colour::Red;
+use byteorder::{LittleEndian, ReadBytesExt, WriteBytesExt};
+use openat::{Dir, SimpleType};
 
 /* let's be academic and properly handle invalid Unicode filepaths, which
  * basically entails using OsString instead of String */
@@ -38,20 +42,22 @@ fn main() {
             (@arg rebuild: -f --rebuild "Force rebuild of cache")
         ).get_matches();
 
-    let dir: &Path = Path::new(matches.value_of_os("DIR").unwrap());
+    let dirpath: &Path = Path::new(matches.value_of_os("DIR").unwrap());
     let codebase: &OsStr = matches.value_of_os("CODEBASE").unwrap();
     let filter: &OsStr = matches.value_of_os("FILTER").unwrap_or(OsStr::new(""));
 
-    if let Err(e) = main_impl(dir, codebase, filter, matches.is_present("rebuild")) {
-        writeln!(std::io::stderr(), "{} {}", Red.bold().paint("error:"), e).unwrap();
+    if let Err(e) = main_impl(dirpath, codebase, filter, matches.is_present("rebuild")) {
+        let _ = writeln!(std::io::stderr(), "{} {}", Red.bold().paint("error:"), e);
         std::process::exit(1);
     }
 }
 
-fn main_impl(dir: &Path, wanted_codebase: &OsStr,
+fn main_impl(dirpath: &Path, wanted_codebase: &OsStr,
              filter: &OsStr, force_rebuild: bool) -> io::Result<()> {
 
-    let meta = fs::metadata(dir)?;
+    let dir = Dir::open(dirpath)?;
+
+    let meta = dir.metadata(".")?;
     if !meta.is_dir() {
         return Err(io::Error::new(
                 io::ErrorKind::InvalidInput,
@@ -73,10 +79,10 @@ fn main_impl(dir: &Path, wanted_codebase: &OsStr,
     let cachefn = cachedir.join((crate_name!()));
     let mut codebases =
         if force_rebuild {
-            build_cache(dir, &cachefn)?
+            build_cache(&dir, &cachefn)?
         } else {
-            match read_cache(dir, &cachefn)? {
-                Option::None => build_cache(dir, &cachefn)?,
+            match read_cache(&dir, &cachefn)? {
+                Option::None => build_cache(&dir, &cachefn)?,
                 Option::Some(codebases) => {
                     was_cached = true;
                     codebases
@@ -103,18 +109,18 @@ fn main_impl(dir: &Path, wanted_codebase: &OsStr,
 
     /* if we didn't find anything but the cache isn't fresh, let's try rescanning */
     if codebases.is_empty() && was_cached {
-        codebases = build_cache(dir, &cachefn)?;
+        codebases = build_cache(&dir, &cachefn)?;
         codebases.retain(|path| path.ends_with(wanted_codebase));
     }
 
     /* are we filtering by number? */
     if let Ok(idx) = usize::from_str(&filter.to_string_lossy()) {
         if !(0 < idx && idx <= codebases.len()) {
-            print_codebases(&codebases)?;
+            print_codebases(dirpath, &codebases)?;
             return Err(io::Error::new(io::ErrorKind::InvalidInput,
                                       format!("Index {} out of range", idx)));
         }
-        io::stdout().write(codebases[idx-1].as_os_str().as_bytes())?;
+        print_codebase(dirpath, &codebases[idx-1])?;
     } else {
 
         /* are we filtering by string? */
@@ -132,29 +138,33 @@ fn main_impl(dir: &Path, wanted_codebase: &OsStr,
                                            "no matches found")),
             1 => (),
             _ => {
-                print_codebases(&codebases)?;
+                print_codebases(dirpath, &codebases)?;
                 return Err(io::Error::new(io::ErrorKind::InvalidInput,
                                           "multiple matches found"))
             },
         }
 
-        io::stdout().write(codebases[0].as_os_str().as_bytes())?;
+        print_codebase(dirpath, &codebases[0])?;
     }
-    println!();
 
     Ok(())
 }
 
-fn print_codebases(codebases: &Vec<PathBuf>) -> io::Result<()> {
+fn print_codebase(dir: &Path, codebase: &Path) -> io::Result<()> {
+    io::stdout().write(dir.join(codebase).as_os_str().as_bytes())?;
+    println!();
+    Ok(())
+}
+
+fn print_codebases(dir: &Path, codebases: &Vec<PathBuf>) -> io::Result<()> {
     for (i, codebase) in codebases.iter().enumerate() {
         print!("  {:2}  ", i+1);
-        io::stdout().write(codebase.as_os_str().as_bytes())?;
-        println!();
+        print_codebase(dir, codebase)?;
     }
     Ok(())
 }
 
-fn read_cache(cached_dir: &Path, cache: &Path) -> io::Result<Option<Vec<PathBuf>>> {
+fn read_cache(cached_dir: &Dir, cache: &Path) -> io::Result<Option<Vec<PathBuf>>> {
     match fs::File::open(cache) {
         Err(e) => {
             if e.kind() != io::ErrorKind::NotFound {
@@ -167,11 +177,22 @@ fn read_cache(cached_dir: &Path, cache: &Path) -> io::Result<Option<Vec<PathBuf>
     }
 }
 
-fn read_cache_file(cached_dir: &Path, file: &fs::File) -> io::Result<Option<Vec<PathBuf>>> {
-    let mut codebases = Vec::new();
+fn read_cache_file(cached_dir: &Dir, file: &fs::File) -> io::Result<Option<Vec<PathBuf>>> {
 
-    let mut first = true;
+    let meta = cached_dir.metadata(".")?;
+    let stat = meta.stat();
+
     let mut reader = io::BufReader::new(file);
+
+    /* first read dev and inode and check that they match */
+    let cached_dev = reader.read_u64::<LittleEndian>()?;
+    let cached_ino = reader.read_u64::<LittleEndian>()?;
+
+    if cached_dev != stat.st_dev || cached_ino != stat.st_ino {
+        return Ok(None);
+    }
+
+    let mut codebases = Vec::new();
     loop {
         let mut buf = Vec::new();
         let n = reader.read_until(b'\0', &mut buf)?;
@@ -187,22 +208,11 @@ fn read_cache_file(cached_dir: &Path, file: &fs::File) -> io::Result<Option<Vec<
             buf.pop();;
         }
 
-        let codebase = PathBuf::from(OsString::from_vec(buf));
-
-        /* we store the cached dir itself as the first entry; check it here */
-        if first {
-            if codebase != cached_dir {
-                return Ok(None);
-            }
-        } else {
-            codebases.push(codebase);
-        }
-
-        first = false;
+        codebases.push(PathBuf::from(OsString::from_vec(buf)));
     }
 }
 
-fn build_cache(cached_dir: &Path, cache: &Path) -> io::Result<Vec<PathBuf>> {
+fn build_cache(cached_dir: &Dir, cache: &Path) -> io::Result<Vec<PathBuf>> {
 
     /* first, scan the target dir */
     let codebases = scan_dir(&cached_dir)?;
@@ -212,9 +222,12 @@ fn build_cache(cached_dir: &Path, cache: &Path) -> io::Result<Vec<PathBuf>> {
     let file = fs::File::create(cache)?;
     let mut writer = io::BufWriter::new(file);
 
-    /* store cached dir itself as first entry */
-    writer.write(cached_dir.as_os_str().as_bytes())?;
-    writer.write(b"\0")?;
+    /* store cached dir inode first so it works regardless of different paths due to
+     * symlinks/bind-mounts (e.g. in my pet container, I use /code, outside ~/Code) */
+    let meta = cached_dir.metadata(".")?;
+    let stat = meta.stat();
+    writer.write_u64::<LittleEndian>(stat.st_dev)?;
+    writer.write_u64::<LittleEndian>(stat.st_ino)?;
 
     for codebase in &codebases {
         writer.write(codebase.as_os_str().as_bytes())?;
@@ -224,9 +237,11 @@ fn build_cache(cached_dir: &Path, cache: &Path) -> io::Result<Vec<PathBuf>> {
     Ok(codebases)
 }
 
-fn scan_dir(dir: &Path) -> io::Result<Vec<PathBuf>> {
+fn scan_dir(dir: &Dir) -> io::Result<Vec<PathBuf>> {
     let mut codebases = Vec::new();
-    scan_dir_recurse(dir, &mut codebases)?;
+    /* Note here that the pathbuf stack we init is *not* initialized with a dirpath. The
+     * cache then purely holds paths relative to dir. */
+    scan_dir_recurse(dir, &mut PathBuf::new(), &mut codebases)?;
     Ok(codebases)
 }
 
@@ -236,13 +251,13 @@ enum DirType {
     Branch,
 }
 
-fn scan_dir_recurse(dir: &Path, codebases: &mut Vec<PathBuf>) -> io::Result<DirType> {
+fn scan_dir_recurse(dir: &Dir, path: &mut PathBuf, codebases: &mut Vec<PathBuf>) -> io::Result<DirType> {
 
     /* We want to return a list of subpaths which have a .git dir with symlinks substituted
      * into middle components if they're shorter. Leaf dirs (codebases) are always added
      * once using its real subdir and once using its symlink if exists */
 
-    match fs::symlink_metadata(dir.join(".git")) {
+    match dir.metadata(".git") {
         Err(e) => {
             if e.kind() != io::ErrorKind::NotFound {
                 return Err(e);
@@ -251,7 +266,7 @@ fn scan_dir_recurse(dir: &Path, codebases: &mut Vec<PathBuf>) -> io::Result<DirT
         Ok(meta) => {
             /* only add to list if it's a dir. otherwise (submodule?) let's skip */
             if meta.is_dir() {
-                codebases.push(dir.to_path_buf());
+                codebases.push(path.clone());
                 return Ok(DirType::Leaf);
             }
             return Ok(DirType::Branch);
@@ -263,14 +278,18 @@ fn scan_dir_recurse(dir: &Path, codebases: &mut Vec<PathBuf>) -> io::Result<DirT
     /* collect symlinks and subdirs */
     let mut subdirs: HashSet<OsString> = HashSet::new();
     let mut symlinks: HashMap<OsString, OsString> = HashMap::new();
-    for entry in fs::read_dir(dir)? {
+    for entry in dir.list_dir(".")? {
         let entry = entry?;
-        let ftype = entry.file_type()?;
-        if ftype.is_dir() {
-            subdirs.insert(entry.file_name());
-        } else if ftype.is_symlink() {
-            let link = entry.file_name();
-            let target = fs::read_link(entry.path())?.into_os_string();
+        let ftype = match entry.simple_type() {
+            Some(ftype) => ftype,
+            /* stat() fallback */
+            None => dir.metadata(entry.file_name())?.simple_type(),
+        };
+        if ftype == SimpleType::Dir {
+            subdirs.insert(entry.file_name().to_os_string());
+        } else if ftype == SimpleType::Symlink {
+            let link = entry.file_name().to_os_string();
+            let target = dir.read_link(entry.file_name())?.into_os_string();
             /* but only if it's actually shorter */
             if link.len() < target.len() {
                 symlinks.insert(link, target);
@@ -288,16 +307,20 @@ fn scan_dir_recurse(dir: &Path, codebases: &mut Vec<PathBuf>) -> io::Result<DirT
 
     /* recurse into symlinks */
     for (symlink, target) in &symlinks {
-        let dtype = scan_dir_recurse(&dir.join(symlink), codebases)?;
+        path.push(symlink);
+        let dtype = scan_dir_recurse(&dir.sub_dir(target.as_os_str())?, path, codebases)?;
+        path.pop();
         /* make sure we also add the non-symlink version if it was a codebase */
         if dtype == DirType::Leaf {
-            codebases.push(dir.join(target));
+            codebases.push(path.join(target));
         }
     }
 
     /* recurse into the other subdirs */
     for subdir in &subdirs {
-        scan_dir_recurse(&dir.join(subdir), codebases)?;
+        path.push(subdir);
+        scan_dir_recurse(&dir.sub_dir(subdir.as_os_str())?, path, codebases)?;
+        path.pop();
     }
 
     Ok(DirType::Branch)
