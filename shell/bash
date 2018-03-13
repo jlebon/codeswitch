@@ -1,0 +1,31 @@
+# include this file in your ~/.bashrc to get a convenient `code` function for
+# switching between repos, with support for auto-completion
+
+# replace with the directory where your git repos reside
+__codepath=/code
+
+code() {
+    dir=$(codeswitch $__codepath "$@")
+    if [ $? -ne 0 ]; then
+        echo "$dir"
+        return 1
+    fi
+    cd $dir
+}
+
+_code() {
+    local cur opts
+    COMPREPLY=()
+    cur="${COMP_WORDS[COMP_CWORD]}"
+
+    # name of the repo
+    if [ $COMP_CWORD = 1 ]; then
+        opts=$(codeswitch $__codepath '_')
+    else
+        return 0
+    fi
+
+    COMPREPLY=( $(compgen -W "${opts}" -- ${cur}) )
+}
+
+complete -F _code code

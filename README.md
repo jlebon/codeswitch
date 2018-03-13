@@ -10,20 +10,9 @@ $ codeswitch /code foobar
 /code/github/foobar
 ```
 
-You can integrate this in your shell with a function like this:
-
-```
-code() {
-    dir=$(codeswitch /code "$@")
-    if [ $? -ne 0 ]; then
-        echo "$dir"
-        return 1
-    fi
-    cd $dir
-}
-```
-
-You can then change directory to `foobar` using `code foobar`.
+A complementary bash integration source file is available [here](shell/bash),
+which defines a function `code`. You can then quickly change directory to
+`foobar` using `code foobar`.
 
 The first run will scan the directory and build a cache in
 `~/.cache/codeswitch`. Subsequent runs will use the cache. Cache misses
