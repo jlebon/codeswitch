@@ -1,0 +1,10 @@
+[package]
+name = "codeswitch"
+version = "0.1.0"
+authors = ["Jonathan Lebon <jonathan.lebon@gmail.com>"]
+description = "Easily switch between different codebases."
+
+[dependencies]
+clap = "2.30"
+# this is also used by clap
+ansi_term = "0.10.2"
