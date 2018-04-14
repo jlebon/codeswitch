@@ -5,8 +5,8 @@ authors = ["Jonathan Lebon <jonathan.lebon@gmail.com>"]
 description = "Easily switch between different codebases."
 
 [dependencies]
-clap = "2.30"
+clap = "~2.31"
 # this is also used by clap
-ansi_term = "0.10.2"
-byteorder = "1.2.1"
+ansi_term = "0.11"
+byteorder = "1"
 openat = "0.1.13"
