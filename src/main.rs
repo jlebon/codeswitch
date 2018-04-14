@@ -52,8 +52,12 @@ fn main() {
     }
 }
 
-fn main_impl(dirpath: &Path, wanted_codebase: &OsStr,
-             filter: &OsStr, force_rebuild: bool) -> io::Result<()> {
+fn main_impl(
+    dirpath:         &Path,
+    wanted_codebase: &OsStr,
+    filter:          &OsStr,
+    force_rebuild:   bool
+) -> io::Result<()> {
 
     let dir = Dir::open(dirpath)?;
 
@@ -251,7 +255,11 @@ enum DirType {
     Branch,
 }
 
-fn scan_dir_recurse(dir: &Dir, path: &mut PathBuf, codebases: &mut Vec<PathBuf>) -> io::Result<DirType> {
+fn scan_dir_recurse(
+    dir:       &Dir,
+    path:      &mut PathBuf,
+    codebases: &mut Vec<PathBuf>
+) -> io::Result<DirType> {
 
     /* We want to return a list of subpaths which have a .git dir with symlinks substituted
      * into middle components if they're shorter. Leaf dirs (codebases) are always added
