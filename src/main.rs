@@ -1,4 +1,4 @@
-/* Copyright (C) 2018 Jonathan Lebon <jonathan.lebon@gmail.com>
+/* Copyright (C) 2018 Jonathan Lebon <jonathan@jlebon.com>
  * SPDX-License-Identifier: MIT
  * */
 
