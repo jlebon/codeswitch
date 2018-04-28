@@ -139,12 +139,12 @@ fn main_impl(
 
         match codebases.len() {
             0 => return Err(io::Error::new(io::ErrorKind::NotFound,
-                                           "no matches found")),
+                                           "No matches found")),
             1 => (),
             _ => {
                 print_codebases(dirpath, &codebases)?;
                 return Err(io::Error::new(io::ErrorKind::InvalidInput,
-                                          "multiple matches found"))
+                                          "Multiple matches found"))
             },
         }
 
