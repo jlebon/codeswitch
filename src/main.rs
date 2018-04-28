@@ -130,9 +130,12 @@ fn main_impl(
         /* are we filtering by string? */
         if filter.len() > 0 {
             codebases.retain(|path| {
+                /* we don't want to match the codebase itself again; just its dirpath */
+                let dirpath_len = path.as_os_str().len() - wanted_codebase.len();
+                let dirpath = &path.as_os_str().as_bytes()[..(dirpath_len)];
                 /* creative substring search for &[u8]:
                  * https://stackoverflow.com/a/35907071/308136 */
-                let mut windows = path.as_os_str().as_bytes().windows(filter.len());
+                let mut windows = dirpath.windows(filter.len());
                 windows.find(|&window| window == filter.as_bytes()) != None
             });
         }
