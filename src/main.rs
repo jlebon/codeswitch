@@ -46,13 +46,13 @@ fn main() {
     let codebase: &OsStr = matches.value_of_os("CODEBASE").unwrap();
     let filter: &OsStr = matches.value_of_os("FILTER").unwrap_or(OsStr::new(""));
 
-    if let Err(e) = main_impl(dirpath, codebase, filter, matches.is_present("rebuild")) {
+    if let Err(e) = run(dirpath, codebase, filter, matches.is_present("rebuild")) {
         let _ = writeln!(std::io::stderr(), "{} {}", Red.bold().paint("error:"), e);
         std::process::exit(1);
     }
 }
 
-fn main_impl(
+fn run(
     dirpath:         &Path,
     wanted_codebase: &OsStr,
     filter:          &OsStr,
@@ -80,7 +80,7 @@ fn main_impl(
     }
 
     let mut was_cached = false;
-    let cachefn = cachedir.join((crate_name!()));
+    let cachefn = cachedir.join(crate_name!());
     let mut codebases =
         if force_rebuild {
             build_cache(&dir, &cachefn)?
