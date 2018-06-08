@@ -44,7 +44,7 @@ fn main() {
 
     let dirpath: &Path = Path::new(matches.value_of_os("DIR").unwrap());
     let codebase: &OsStr = matches.value_of_os("CODEBASE").unwrap();
-    let filter: &OsStr = matches.value_of_os("FILTER").unwrap_or(OsStr::new(""));
+    let filter: &OsStr = matches.value_of_os("FILTER").unwrap_or_else(|| OsStr::new(""));
 
     if let Err(e) = run(dirpath, codebase, filter, matches.is_present("rebuild")) {
         let _ = writeln!(std::io::stderr(), "{} {}", Red.bold().paint("error:"), e);
@@ -103,7 +103,7 @@ fn run(
             basenames.insert(codebase.file_name().unwrap());
         }
         for basename in &basenames {
-            io::stdout().write(basename.as_bytes())?;
+            io::stdout().write_all(basename.as_bytes())?;
             println!();
         }
         return Ok(());
@@ -128,7 +128,7 @@ fn run(
     } else {
 
         /* are we filtering by string? */
-        if filter.len() > 0 {
+        if !filter.is_empty() {
             codebases.retain(|path| {
                 /* we don't want to match the codebase itself again; just its dirpath */
                 let dirpath_len = path.as_os_str().len() - wanted_codebase.len();
@@ -158,12 +158,12 @@ fn run(
 }
 
 fn print_codebase(dir: &Path, codebase: &Path) -> io::Result<()> {
-    io::stdout().write(dir.join(codebase).as_os_str().as_bytes())?;
+    io::stdout().write_all(dir.join(codebase).as_os_str().as_bytes())?;
     println!();
     Ok(())
 }
 
-fn print_codebases(dir: &Path, codebases: &Vec<PathBuf>) -> io::Result<()> {
+fn print_codebases(dir: &Path, codebases: &[PathBuf]) -> io::Result<()> {
     for (i, codebase) in codebases.iter().enumerate() {
         print!("  {:2}  ", i+1);
         print_codebase(dir, codebase)?;
@@ -204,14 +204,14 @@ fn read_cache_file(cached_dir: &Dir, file: &fs::File) -> io::Result<Option<Vec<P
         let mut buf = Vec::new();
         let n = reader.read_until(b'\0', &mut buf)?;
         if n == 0 {
-            if codebases.len() == 0 {
+            if codebases.is_empty() {
                 return Ok(None);
             }
             return Ok(Some(codebases));
         }
 
         /* trim tail */
-        while buf.len() > 0 && buf[buf.len()-1] == b'\0' {
+        while !buf.is_empty() && buf[buf.len()-1] == b'\0' {
             buf.pop();;
         }
 
@@ -237,8 +237,8 @@ fn build_cache(cached_dir: &Dir, cache: &Path) -> io::Result<Vec<PathBuf>> {
     writer.write_u64::<LittleEndian>(stat.st_ino)?;
 
     for codebase in &codebases {
-        writer.write(codebase.as_os_str().as_bytes())?;
-        writer.write(b"\0")?;
+        writer.write_all(codebase.as_os_str().as_bytes())?;
+        writer.write_all(b"\0")?;
     }
 
     Ok(codebases)
@@ -312,7 +312,7 @@ fn scan_dir_recurse(
     symlinks.retain(|_, target| subdirs.contains(target));
 
     /* prune away subdirs for which we have symlinks that target them */
-    for (_, target) in &symlinks {
+    for target in symlinks.values() {
         subdirs.remove(target);
     }
 
