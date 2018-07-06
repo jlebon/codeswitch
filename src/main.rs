@@ -37,16 +37,24 @@ fn main() {
             (author: crate_authors!())
             (about: crate_description!())
             (@arg DIR: +required "The root directory to search")
-            (@arg CODEBASE: +required "The codebase to search for (or '_' for all)")
+            (@arg CODEBASE: +required "Codebase to search, with optional /subdir")
             (@arg FILTER: "String to filter by, or line index to return")
             (@arg rebuild: -f --rebuild "Force rebuild of cache")
         ).get_matches();
 
     let dirpath: &Path = Path::new(matches.value_of_os("DIR").unwrap());
-    let codebase: &OsStr = matches.value_of_os("CODEBASE").unwrap();
     let filter: &OsStr = matches.value_of_os("FILTER").unwrap_or_else(|| OsStr::new(""));
+    let (codebase, subdir) = {
+        let arg = matches.value_of_os("CODEBASE").unwrap();
+        let bytes = arg.as_bytes();
+        match bytes.iter().position(|u| *u == b'/') {
+            Some(i) => (OsStr::from_bytes(&bytes[..i]),
+                        Some(OsStr::from_bytes(&bytes[i..]))),
+            None => (arg, None),
+        }
+    };
 
-    if let Err(e) = run(dirpath, codebase, filter, matches.is_present("rebuild")) {
+    if let Err(e) = run(dirpath, codebase, subdir, filter, matches.is_present("rebuild")) {
         let _ = writeln!(std::io::stderr(), "{} {}", Red.bold().paint("error:"), e);
         std::process::exit(1);
     }
@@ -55,6 +63,7 @@ fn main() {
 fn run(
     dirpath:         &Path,
     wanted_codebase: &OsStr,
+    subdir:          Option<&OsStr>,
     filter:          &OsStr,
     force_rebuild:   bool
 ) -> io::Result<()> {
@@ -125,6 +134,7 @@ fn run(
                                       format!("Index {} out of range", idx)));
         }
         print_codebase(dirpath, &codebases[idx-1])?;
+        println!();
     } else {
 
         /* are we filtering by string? */
@@ -152,6 +162,10 @@ fn run(
         }
 
         print_codebase(dirpath, &codebases[0])?;
+        if let Some(dir) = subdir {
+            io::stdout().write_all(dir.as_bytes())?;
+        }
+        println!();
     }
 
     Ok(())
@@ -159,7 +173,6 @@ fn run(
 
 fn print_codebase(dir: &Path, codebase: &Path) -> io::Result<()> {
     io::stdout().write_all(dir.join(codebase).as_os_str().as_bytes())?;
-    println!();
     Ok(())
 }
 
@@ -167,6 +180,7 @@ fn print_codebases(dir: &Path, codebases: &[PathBuf]) -> io::Result<()> {
     for (i, codebase) in codebases.iter().enumerate() {
         print!("  {:2}  ", i+1);
         print_codebase(dir, codebase)?;
+        println!();
     }
     Ok(())
 }
