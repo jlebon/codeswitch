@@ -2,20 +2,20 @@
  * SPDX-License-Identifier: MIT
  * */
 
-use std::io;
-use std::fs;
-use std::str::FromStr;
-use std::path::Path;
-use std::path::PathBuf;
-use std::io::Write;
-use std::io::BufRead;
 use std::ffi::OsStr;
 use std::ffi::OsString;
+use std::fs;
+use std::io;
+use std::io::BufRead;
+use std::io::Write;
 use std::os::unix::ffi::OsStrExt;
 use std::os::unix::ffi::OsStringExt;
+use std::path::Path;
+use std::path::PathBuf;
+use std::str::FromStr;
 
-use std::collections::HashSet;
 use std::collections::HashMap;
+use std::collections::HashSet;
 
 #[macro_use]
 extern crate clap;
@@ -31,7 +31,6 @@ use openat::{Dir, SimpleType};
  * basically entails using OsString instead of String */
 
 fn main() {
-
     let matches = clap_app!((crate_name!()) =>
             (version: crate_version!())
             (author: crate_authors!())
@@ -43,38 +42,48 @@ fn main() {
         ).get_matches();
 
     let dirpath: &Path = Path::new(matches.value_of_os("DIR").unwrap());
-    let filter: &OsStr = matches.value_of_os("FILTER").unwrap_or_else(|| OsStr::new(""));
+    let filter: &OsStr = matches
+        .value_of_os("FILTER")
+        .unwrap_or_else(|| OsStr::new(""));
     let (codebase, subdir) = {
         let arg = matches.value_of_os("CODEBASE").unwrap();
         let bytes = arg.as_bytes();
         match bytes.iter().position(|u| *u == b'/') {
-            Some(i) => (OsStr::from_bytes(&bytes[..i]),
-                        Some(OsStr::from_bytes(&bytes[i..]))),
+            Some(i) => (
+                OsStr::from_bytes(&bytes[..i]),
+                Some(OsStr::from_bytes(&bytes[i..])),
+            ),
             None => (arg, None),
         }
     };
 
-    if let Err(e) = run(dirpath, codebase, subdir, filter, matches.is_present("rebuild")) {
+    if let Err(e) = run(
+        dirpath,
+        codebase,
+        subdir,
+        filter,
+        matches.is_present("rebuild"),
+    ) {
         let _ = writeln!(std::io::stderr(), "{} {}", Red.bold().paint("error:"), e);
         std::process::exit(1);
     }
 }
 
 fn run(
-    dirpath:         &Path,
+    dirpath: &Path,
     wanted_codebase: &OsStr,
-    subdir:          Option<&OsStr>,
-    filter:          &OsStr,
-    force_rebuild:   bool
+    subdir: Option<&OsStr>,
+    filter: &OsStr,
+    force_rebuild: bool,
 ) -> io::Result<()> {
-
     let dir = Dir::open(dirpath)?;
 
     let meta = dir.metadata(".")?;
     if !meta.is_dir() {
         return Err(io::Error::new(
-                io::ErrorKind::InvalidInput,
-                format!("{:?} is not a directory", dir)));
+            io::ErrorKind::InvalidInput,
+            format!("{:?} is not a directory", dir),
+        ));
     }
 
     let cachedir = match std::env::home_dir() {
@@ -84,24 +93,24 @@ fn run(
 
     if !cachedir.is_dir() {
         return Err(io::Error::new(
-                io::ErrorKind::NotFound,
-                format!("Cache directory {:?} not found", cachedir)));
+            io::ErrorKind::NotFound,
+            format!("Cache directory {:?} not found", cachedir),
+        ));
     }
 
     let mut was_cached = false;
     let cachefn = cachedir.join(crate_name!());
-    let mut codebases =
-        if force_rebuild {
-            build_cache(&dir, &cachefn)?
-        } else {
-            match read_cache(&dir, &cachefn)? {
-                Option::None => build_cache(&dir, &cachefn)?,
-                Option::Some(codebases) => {
-                    was_cached = true;
-                    codebases
-                },
+    let mut codebases = if force_rebuild {
+        build_cache(&dir, &cachefn)?
+    } else {
+        match read_cache(&dir, &cachefn)? {
+            Option::None => build_cache(&dir, &cachefn)?,
+            Option::Some(codebases) => {
+                was_cached = true;
+                codebases
             }
-        };
+        }
+    };
 
     /* short-circuit for '_' support, e.g. for shell auto-completion */
     if wanted_codebase == "_" {
@@ -130,13 +139,14 @@ fn run(
     if let Ok(idx) = usize::from_str(&filter.to_string_lossy()) {
         if !(0 < idx && idx <= codebases.len()) {
             print_codebases(dirpath, &codebases)?;
-            return Err(io::Error::new(io::ErrorKind::InvalidInput,
-                                      format!("Index {} out of range", idx)));
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                format!("Index {} out of range", idx),
+            ));
         }
-        print_codebase(dirpath, &codebases[idx-1])?;
+        print_codebase(dirpath, &codebases[idx - 1])?;
         println!();
     } else {
-
         /* are we filtering by string? */
         if !filter.is_empty() {
             codebases.retain(|path| {
@@ -151,14 +161,15 @@ fn run(
         }
 
         match codebases.len() {
-            0 => return Err(io::Error::new(io::ErrorKind::NotFound,
-                                           "No matches found")),
+            0 => return Err(io::Error::new(io::ErrorKind::NotFound, "No matches found")),
             1 => (),
             _ => {
                 print_codebases(dirpath, &codebases)?;
-                return Err(io::Error::new(io::ErrorKind::InvalidInput,
-                                          "Multiple matches found"))
-            },
+                return Err(io::Error::new(
+                    io::ErrorKind::InvalidInput,
+                    "Multiple matches found",
+                ));
+            }
         }
 
         print_codebase(dirpath, &codebases[0])?;
@@ -178,7 +189,7 @@ fn print_codebase(dir: &Path, codebase: &Path) -> io::Result<()> {
 
 fn print_codebases(dir: &Path, codebases: &[PathBuf]) -> io::Result<()> {
     for (i, codebase) in codebases.iter().enumerate() {
-        print!("  {:2}  ", i+1);
+        print!("  {:2}  ", i + 1);
         print_codebase(dir, codebase)?;
         println!();
     }
@@ -193,13 +204,12 @@ fn read_cache(cached_dir: &Dir, cache: &Path) -> io::Result<Option<Vec<PathBuf>>
             } else {
                 Ok(None)
             }
-        },
+        }
         Ok(f) => Ok(read_cache_file(cached_dir, &f)?),
     }
 }
 
 fn read_cache_file(cached_dir: &Dir, file: &fs::File) -> io::Result<Option<Vec<PathBuf>>> {
-
     let meta = cached_dir.metadata(".")?;
     let stat = meta.stat();
 
@@ -225,7 +235,7 @@ fn read_cache_file(cached_dir: &Dir, file: &fs::File) -> io::Result<Option<Vec<P
         }
 
         /* trim tail */
-        while !buf.is_empty() && buf[buf.len()-1] == b'\0' {
+        while !buf.is_empty() && buf[buf.len() - 1] == b'\0' {
             buf.pop();;
         }
 
@@ -234,7 +244,6 @@ fn read_cache_file(cached_dir: &Dir, file: &fs::File) -> io::Result<Option<Vec<P
 }
 
 fn build_cache(cached_dir: &Dir, cache: &Path) -> io::Result<Vec<PathBuf>> {
-
     /* first, scan the target dir */
     let codebases = scan_dir(&cached_dir)?;
 
@@ -268,16 +277,15 @@ fn scan_dir(dir: &Dir) -> io::Result<Vec<PathBuf>> {
 
 #[derive(PartialEq)]
 enum DirType {
-    Leaf,   /* i.e. the dir is a codebase itself */
+    Leaf, /* i.e. the dir is a codebase itself */
     Branch,
 }
 
 fn scan_dir_recurse(
-    dir:       &Dir,
-    path:      &mut PathBuf,
-    codebases: &mut Vec<PathBuf>
+    dir: &Dir,
+    path: &mut PathBuf,
+    codebases: &mut Vec<PathBuf>,
 ) -> io::Result<DirType> {
-
     /* We want to return a list of subpaths which have a .git dir with symlinks substituted
      * into middle components if they're shorter. Leaf dirs (codebases) are always added
      * once using its real subdir and once using its symlink if exists */
@@ -287,7 +295,7 @@ fn scan_dir_recurse(
             if e.kind() != io::ErrorKind::NotFound {
                 return Err(e);
             }
-        },
+        }
         Ok(meta) => {
             /* only add to list if it's a dir. otherwise (submodule?) let's skip */
             if meta.is_dir() {
@@ -295,7 +303,7 @@ fn scan_dir_recurse(
                 return Ok(DirType::Leaf);
             }
             return Ok(DirType::Branch);
-        },
+        }
     };
 
     /* no .git/ dir, let's recurse */
