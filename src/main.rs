@@ -22,6 +22,7 @@ extern crate clap;
 extern crate ansi_term;
 extern crate byteorder;
 extern crate openat;
+extern crate dirs;
 
 use ansi_term::Colour::Red;
 use byteorder::{LittleEndian, ReadBytesExt, WriteBytesExt};
@@ -86,7 +87,7 @@ fn run(
         ));
     }
 
-    let cachedir = match std::env::home_dir() {
+    let cachedir = match dirs::home_dir() {
         Some(path) => path.join(".cache"),
         None => PathBuf::from("/var/cache"),
     };
