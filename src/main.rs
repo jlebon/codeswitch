@@ -297,13 +297,9 @@ fn scan_dir_recurse(
                 return Err(e);
             }
         }
-        Ok(meta) => {
-            /* only add to list if it's a dir. otherwise (submodule?) let's skip */
-            if meta.is_dir() {
-                codebases.push(path.clone());
-                return Ok(DirType::Leaf);
-            }
-            return Ok(DirType::Branch);
+        Ok(_) => {
+            codebases.push(path.clone());
+            return Ok(DirType::Leaf);
         }
     };
 
