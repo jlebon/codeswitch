@@ -21,8 +21,8 @@ use std::collections::HashSet;
 extern crate clap;
 extern crate ansi_term;
 extern crate byteorder;
-extern crate openat;
 extern crate dirs;
+extern crate openat;
 
 use ansi_term::Colour::Red;
 use byteorder::{LittleEndian, ReadBytesExt, WriteBytesExt};
