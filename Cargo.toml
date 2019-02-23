@@ -3,6 +3,7 @@ name = "codeswitch"
 version = "0.1.0"
 authors = ["Jonathan Lebon <jonathan@jlebon.com>"]
 description = "Easily switch between different codebases."
+edition = "2018"
 
 [dependencies]
 clap = "~2.31"
