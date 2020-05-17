@@ -237,7 +237,7 @@ fn read_cache_file(cached_dir: &Dir, file: &fs::File) -> io::Result<Option<Vec<P
 
         /* trim tail */
         while !buf.is_empty() && buf[buf.len() - 1] == b'\0' {
-            buf.pop();;
+            buf.pop();
         }
 
         codebases.push(PathBuf::from(OsString::from_vec(buf)));
