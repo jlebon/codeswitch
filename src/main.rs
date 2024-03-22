@@ -33,14 +33,15 @@ use openat::{Dir, SimpleType};
 
 fn main() {
     let matches = clap_app!((crate_name!()) =>
-            (version: crate_version!())
-            (author: crate_authors!())
-            (about: crate_description!())
-            (@arg DIR: +required "The root directory to search")
-            (@arg CODEBASE: +required "Codebase to search, with optional /subdir")
-            (@arg FILTER: "String to filter by, or line index to return")
-            (@arg rebuild: -f --rebuild "Force rebuild of cache")
-        ).get_matches();
+        (version: crate_version!())
+        (author: crate_authors!())
+        (about: crate_description!())
+        (@arg DIR: +required "The root directory to search")
+        (@arg CODEBASE: +required "Codebase to search, with optional /subdir")
+        (@arg FILTER: "String to filter by, or line index to return")
+        (@arg rebuild: -f --rebuild "Force rebuild of cache")
+    )
+    .get_matches();
 
     let dirpath: &Path = Path::new(matches.value_of_os("DIR").unwrap());
     let filter: &OsStr = matches
@@ -157,7 +158,7 @@ fn run(
                 /* creative substring search for &[u8]:
                  * https://stackoverflow.com/a/35907071/308136 */
                 let mut windows = dirpath.windows(filter.len());
-                windows.find(|&window| window == filter.as_bytes()) != None
+                windows.any(|window| window == filter.as_bytes())
             });
         }
 
@@ -246,7 +247,7 @@ fn read_cache_file(cached_dir: &Dir, file: &fs::File) -> io::Result<Option<Vec<P
 
 fn build_cache(cached_dir: &Dir, cache: &Path) -> io::Result<Vec<PathBuf>> {
     /* first, scan the target dir */
-    let codebases = scan_dir(&cached_dir)?;
+    let codebases = scan_dir(cached_dir)?;
 
     /* ok, let's write it to cache */
 
