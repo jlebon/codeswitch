@@ -6,9 +6,8 @@ description = "Easily switch between different codebases."
 edition = "2018"
 
 [dependencies]
-clap = "2"
-# this is also used by clap
-ansi_term = "0.11"
+clap = { version = "4", features = ["derive"] }
+ansi_term = "0.12"
 byteorder = "1"
 openat = "0.1"
 dirs = "1"

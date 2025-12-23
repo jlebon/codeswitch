@@ -19,13 +19,7 @@ use std::collections::HashSet;
 
 use glob::Pattern;
 
-#[macro_use]
-extern crate clap;
-extern crate ansi_term;
-extern crate byteorder;
-extern crate dirs;
-extern crate glob;
-extern crate openat;
+use clap::Parser;
 
 use ansi_term::Colour::{Red, Yellow};
 use byteorder::{LittleEndian, ReadBytesExt, WriteBytesExt};
@@ -33,6 +27,20 @@ use openat::{Dir, SimpleType};
 
 /* let's be academic and properly handle invalid Unicode filepaths, which
  * basically entails using OsString instead of String */
+
+#[derive(Parser)]
+#[command(version, about)]
+struct Cli {
+    /// The root directory to search
+    dir: OsString,
+    /// Codebase to search, with optional /subdir
+    codebase: OsString,
+    /// String to filter by, or line index to return
+    filter: Option<OsString>,
+    /// Force rebuild of cache
+    #[arg(short = 'f', long)]
+    rebuild: bool,
+}
 
 struct Config {
     defaults: HashMap<String, String>,
@@ -81,9 +89,8 @@ fn read_config() -> io::Result<Config> {
             }
         } else {
             // glob pattern (no '=')
-            let pattern = Pattern::new(line).map_err(|e| {
-                io::Error::new(io::ErrorKind::InvalidData, e.msg)
-            })?;
+            let pattern = Pattern::new(line)
+                .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e.msg))?;
             config.patterns.push(pattern);
         }
     }
@@ -122,40 +129,22 @@ fn resolve_default(
 }
 
 fn main() {
-    let matches = clap_app!((crate_name!()) =>
-        (version: crate_version!())
-        (author: crate_authors!())
-        (about: crate_description!())
-        (@arg DIR: +required "The root directory to search")
-        (@arg CODEBASE: +required "Codebase to search, with optional /subdir")
-        (@arg FILTER: "String to filter by, or line index to return")
-        (@arg rebuild: -f --rebuild "Force rebuild of cache")
-    )
-    .get_matches();
+    let cli = Cli::parse();
 
-    let dirpath: &Path = Path::new(matches.value_of_os("DIR").unwrap());
-    let filter: &OsStr = matches
-        .value_of_os("FILTER")
-        .unwrap_or_else(|| OsStr::new(""));
+    let dirpath: &Path = Path::new(&cli.dir);
+    let filter: &OsStr = cli.filter.as_deref().unwrap_or_else(|| OsStr::new(""));
     let (codebase, subdir) = {
-        let arg = matches.value_of_os("CODEBASE").unwrap();
-        let bytes = arg.as_bytes();
+        let bytes = cli.codebase.as_bytes();
         match bytes.iter().position(|u| *u == b'/') {
             Some(i) => (
                 OsStr::from_bytes(&bytes[..i]),
                 Some(OsStr::from_bytes(&bytes[i..])),
             ),
-            None => (arg, None),
+            None => (cli.codebase.as_os_str(), None),
         }
     };
 
-    if let Err(e) = run(
-        dirpath,
-        codebase,
-        subdir,
-        filter,
-        matches.is_present("rebuild"),
-    ) {
+    if let Err(e) = run(dirpath, codebase, subdir, filter, cli.rebuild) {
         let _ = writeln!(std::io::stderr(), "{} {}", Red.bold().paint("error:"), e);
         std::process::exit(1);
     }
@@ -192,7 +181,7 @@ fn run(
     }
 
     let mut was_cached = false;
-    let cachefn = cachedir.join(crate_name!());
+    let cachefn = cachedir.join(env!("CARGO_PKG_NAME"));
     let mut codebases = if force_rebuild {
         build_cache(&dir, &cachefn)?
     } else {
@@ -256,27 +245,25 @@ fn run(
         let resolved_idx = match codebases.len() {
             0 => return Err(io::Error::new(io::ErrorKind::NotFound, "No matches found")),
             1 => 0,
-            _ => {
-                match resolve_default(&config, wanted_codebase, &codebases) {
-                    Some(idx) => idx,
-                    None => {
-                        print_codebases(dirpath, &codebases)?;
-                        let codebase_name = wanted_codebase.to_string_lossy();
-                        let first_path = codebases[0].to_string_lossy();
-                        let _ = writeln!(
-                            std::io::stderr(),
-                            "{} add '{} = {}' to ~/.config/codeswitch",
-                            Yellow.paint("hint:"),
-                            codebase_name,
-                            first_path
-                        );
-                        return Err(io::Error::new(
-                            io::ErrorKind::InvalidInput,
-                            "Multiple matches found (no default configured)",
-                        ));
-                    }
+            _ => match resolve_default(&config, wanted_codebase, &codebases) {
+                Some(idx) => idx,
+                None => {
+                    print_codebases(dirpath, &codebases)?;
+                    let codebase_name = wanted_codebase.to_string_lossy();
+                    let first_path = codebases[0].to_string_lossy();
+                    let _ = writeln!(
+                        std::io::stderr(),
+                        "{} add '{} = {}' to ~/.config/codeswitch",
+                        Yellow.paint("hint:"),
+                        codebase_name,
+                        first_path
+                    );
+                    return Err(io::Error::new(
+                        io::ErrorKind::InvalidInput,
+                        "Multiple matches found (no default configured)",
+                    ));
                 }
-            }
+            },
         };
 
         print_codebase(dirpath, &codebases[resolved_idx])?;
