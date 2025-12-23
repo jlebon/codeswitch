@@ -10,7 +10,7 @@ $ codeswitch /code foobar
 /code/github/foobar
 ```
 
-A complementary bash integration source file is available [here](shell/bash),
+A complementary bash integration source file is available [here](shell/bash.sh),
 which defines a function `code`. You can then quickly change directory to
 `foobar` using `code foobar`.
 
