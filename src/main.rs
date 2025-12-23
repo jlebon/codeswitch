@@ -21,7 +21,7 @@ use glob::Pattern;
 
 use clap::Parser;
 
-use ansi_term::Colour::{Red, Yellow};
+use nu_ansi_term::Color::{Red, Yellow};
 use byteorder::{LittleEndian, ReadBytesExt, WriteBytesExt};
 use openat::{Dir, SimpleType};
 
