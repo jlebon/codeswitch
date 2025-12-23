@@ -31,6 +31,19 @@ error: multiple matches found
 You can then be more specific by providing an index (`code foobar 2`), or a
 string to match (`code foobar qwer`).
 
+Alternatively, you can configure defaults in `~/.config/codeswitch`:
+
+```
+# Per-name defaults: always use this path for a given codebase name
+foobar = github/qwer/foobar
+
+# Glob patterns: prefer paths matching these patterns (first match wins)
+github/myorg/*
+```
+
+Per-name defaults are checked first, then glob patterns. With the config above,
+`code foobar` would automatically resolve to `/code/github/qwer/foobar`.
+
 `codeswitch` has some fancy handling for symbolic links. For example, if
 `code/gh` is a symlink to `github`, then `codeswitch` will automatically drop
 `github` paths in favour their shorter `gh` equivalents.

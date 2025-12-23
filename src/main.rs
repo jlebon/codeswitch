@@ -17,19 +17,109 @@ use std::str::FromStr;
 use std::collections::HashMap;
 use std::collections::HashSet;
 
+use glob::Pattern;
+
 #[macro_use]
 extern crate clap;
 extern crate ansi_term;
 extern crate byteorder;
 extern crate dirs;
+extern crate glob;
 extern crate openat;
 
-use ansi_term::Colour::Red;
+use ansi_term::Colour::{Red, Yellow};
 use byteorder::{LittleEndian, ReadBytesExt, WriteBytesExt};
 use openat::{Dir, SimpleType};
 
 /* let's be academic and properly handle invalid Unicode filepaths, which
  * basically entails using OsString instead of String */
+
+struct Config {
+    defaults: HashMap<String, String>,
+    patterns: Vec<Pattern>,
+}
+
+impl Config {
+    fn new() -> Config {
+        Config {
+            defaults: HashMap::new(),
+            patterns: Vec::new(),
+        }
+    }
+}
+
+fn read_config() -> io::Result<Config> {
+    let config_path = match dirs::home_dir() {
+        Some(path) => path.join(".config").join("codeswitch"),
+        None => return Ok(Config::new()),
+    };
+
+    let file = match fs::File::open(&config_path) {
+        Ok(f) => f,
+        Err(e) if e.kind() == io::ErrorKind::NotFound => return Ok(Config::new()),
+        Err(e) => return Err(e),
+    };
+
+    let mut config = Config::new();
+    let reader = io::BufReader::new(file);
+
+    for line in reader.lines() {
+        let line = line?;
+        let line = line.trim();
+
+        // skip empty lines and comments
+        if line.is_empty() || line.starts_with('#') {
+            continue;
+        }
+
+        if let Some(eq_pos) = line.find('=') {
+            // per-name default: name = path
+            let name = line[..eq_pos].trim().to_string();
+            let path = line[eq_pos + 1..].trim().to_string();
+            if !name.is_empty() && !path.is_empty() {
+                config.defaults.insert(name, path);
+            }
+        } else {
+            // glob pattern (no '=')
+            let pattern = Pattern::new(line).map_err(|e| {
+                io::Error::new(io::ErrorKind::InvalidData, e.msg)
+            })?;
+            config.patterns.push(pattern);
+        }
+    }
+
+    Ok(config)
+}
+
+/// Try to resolve multiple matches using config (per-name defaults and glob patterns).
+/// Returns Some(index) if a match is found, None otherwise.
+fn resolve_default(
+    config: &Config,
+    wanted_codebase: &OsStr,
+    codebases: &[PathBuf],
+) -> Option<usize> {
+    let codebase_str = wanted_codebase.to_string_lossy();
+
+    // first check per-name defaults
+    if let Some(default_path) = config.defaults.get(codebase_str.as_ref()) {
+        for (i, path) in codebases.iter().enumerate() {
+            if path.to_string_lossy() == *default_path {
+                return Some(i);
+            }
+        }
+    }
+
+    // then check glob patterns (first match wins)
+    for pattern in &config.patterns {
+        for (i, path) in codebases.iter().enumerate() {
+            if pattern.matches_path(path) {
+                return Some(i);
+            }
+        }
+    }
+
+    None
+}
 
 fn main() {
     let matches = clap_app!((crate_name!()) =>
@@ -78,6 +168,7 @@ fn run(
     filter: &OsStr,
     force_rebuild: bool,
 ) -> io::Result<()> {
+    let config = read_config()?;
     let dir = Dir::open(dirpath)?;
 
     let meta = dir.metadata(".")?;
@@ -162,19 +253,33 @@ fn run(
             });
         }
 
-        match codebases.len() {
+        let resolved_idx = match codebases.len() {
             0 => return Err(io::Error::new(io::ErrorKind::NotFound, "No matches found")),
-            1 => (),
+            1 => 0,
             _ => {
-                print_codebases(dirpath, &codebases)?;
-                return Err(io::Error::new(
-                    io::ErrorKind::InvalidInput,
-                    "Multiple matches found",
-                ));
+                match resolve_default(&config, wanted_codebase, &codebases) {
+                    Some(idx) => idx,
+                    None => {
+                        print_codebases(dirpath, &codebases)?;
+                        let codebase_name = wanted_codebase.to_string_lossy();
+                        let first_path = codebases[0].to_string_lossy();
+                        let _ = writeln!(
+                            std::io::stderr(),
+                            "{} add '{} = {}' to ~/.config/codeswitch",
+                            Yellow.paint("hint:"),
+                            codebase_name,
+                            first_path
+                        );
+                        return Err(io::Error::new(
+                            io::ErrorKind::InvalidInput,
+                            "Multiple matches found (no default configured)",
+                        ));
+                    }
+                }
             }
-        }
+        };
 
-        print_codebase(dirpath, &codebases[0])?;
+        print_codebase(dirpath, &codebases[resolved_idx])?;
         if let Some(dir) = subdir {
             io::stdout().write_all(dir.as_bytes())?;
         }
