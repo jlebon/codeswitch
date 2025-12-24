@@ -21,7 +21,10 @@ use glob::Pattern;
 
 use clap::Parser;
 
-use nu_ansi_term::Color::{Red, Yellow};
+use anstyle::{AnsiColor, Style};
+
+const RED_BOLD: Style = Style::new().fg_color(Some(anstyle::Color::Ansi(AnsiColor::Red))).bold();
+const YELLOW: Style = Style::new().fg_color(Some(anstyle::Color::Ansi(AnsiColor::Yellow)));
 use byteorder::{LittleEndian, ReadBytesExt, WriteBytesExt};
 use openat::{Dir, SimpleType};
 
@@ -145,7 +148,7 @@ fn main() {
     };
 
     if let Err(e) = run(dirpath, codebase, subdir, filter, cli.rebuild) {
-        let _ = writeln!(std::io::stderr(), "{} {}", Red.bold().paint("error:"), e);
+        let _ = writeln!(std::io::stderr(), "{RED_BOLD}error:{RED_BOLD:#} {e}");
         std::process::exit(1);
     }
 }
@@ -253,10 +256,7 @@ fn run(
                     let first_path = codebases[0].to_string_lossy();
                     let _ = writeln!(
                         std::io::stderr(),
-                        "{} add '{} = {}' to ~/.config/codeswitch",
-                        Yellow.paint("hint:"),
-                        codebase_name,
-                        first_path
+                        "{YELLOW}hint:{YELLOW:#} add '{codebase_name} = {first_path}' to ~/.config/codeswitch"
                     );
                     return Err(io::Error::new(
                         io::ErrorKind::InvalidInput,

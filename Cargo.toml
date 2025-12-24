@@ -7,7 +7,7 @@ edition = "2018"
 
 [dependencies]
 clap = { version = "4", features = ["derive"] }
-nu-ansi-term = "0.50"
+anstyle = "1"
 byteorder = "1"
 openat = "0.1"
 dirs = "6"
